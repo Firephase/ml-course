@@ -1,4 +1,4 @@
-iport numpy as np
+import numpy as np
 """
 Credits: the original code belongs to Stanford CS231n course assignment1. Source link: http://cs231n.github.io/assignments2019/assignment1/
 """
@@ -166,7 +166,7 @@ class KNearestNeighbor:
             for m in range(10):
                 counts[m][0] = m # 10 pairs of (m,0)
             for m in range(k):
-                counts[nearest[k][1]][1] = counts[nearest[k][1]][1] + 1 # counter increments. we received voting
+                counts[nearest[m][1]][1] += 1 # counter increments. we received voting
                                                                 #now time to say who is the best...
             counts = np.sort(counts,order='voting')
             y_pred[i]=counts[0][1]
