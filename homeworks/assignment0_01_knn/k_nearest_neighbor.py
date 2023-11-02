@@ -9,7 +9,7 @@ class KNearestNeighbor:
     def __init__(self):
         pass
 
-    def fit(self, X, y):
+    def fit(self, X, Y):
         """
         Train the classifier. For k-nearest neighbors this is just
         memorizing the training data.
@@ -21,7 +21,7 @@ class KNearestNeighbor:
              y[i] is the label for X[i].
         """
         self.X_train = X
-        self.y_train = y
+        self.y_train = Y
 
     def predict(self, X, k=1, num_loops=0):
         """
@@ -75,7 +75,7 @@ class KNearestNeighbor:
                 # not use a loop over dimension, nor use np.linalg.norm().          #
                 #####################################################################
                 # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
+                dists[i,j] = np.sqrt(np.dot(X[i]-self.X_train[j],(X[i]-self.X_train[j]).transpose()))
                 # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return dists
 
@@ -97,7 +97,7 @@ class KNearestNeighbor:
             # Do not use np.linalg.norm().                                        #
             #######################################################################
             # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
+            pass
             # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return dists
 
@@ -125,7 +125,7 @@ class KNearestNeighbor:
         #       and two broadcast sums.                                         #
         #########################################################################
         # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
+        pass
         # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
         return dists
 
@@ -143,6 +143,7 @@ class KNearestNeighbor:
           test data, where y[i] is the predicted label for the test point X[i].
         """
         num_test = dists.shape[0]
+        num_train = dists.shape[1]
         y_pred = np.zeros(num_test)
         for i in range(num_test):
             # A list of length k storing the labels of the k nearest neighbors to
@@ -155,7 +156,21 @@ class KNearestNeighbor:
             # Hint: Look up the function numpy.argsort.                             #
             #########################################################################
             # *****START OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
-
+            dtype = [('dist', float), ('count', int)]
+            dtype1 = [('counter',int),('voting',int)]
+            nearest = np.zeros(num_train,dtype=dtype) # made an array of pairs (0,0), number = num_train - train size
+            for l in range(num_train):
+                nearest[l] = (dists[i,l],self.y_train[l])# size of y_train equals to size of trained data
+            nearest = np.sort(nearest,order='dist') #sorting out by distance, on the exit we get sorted neares pairs
+            counts = np.zeros(10,dtype=dtype1) # 10 pairs of (0,0)
+            for m in range(10):
+                counts[m][0] = m # 10 pairs of (m,0)
+            for m in range(k):
+                counts[nearest[m][1]][1] = counts[nearest[m][1]][1] + 1 # counter increments. we received voting
+                                                                #now time to say who is the best...
+            counts = np.sort(counts,order='voting')
+            y_pred[i]=counts[9][0]
+            
             # *****END OF YOUR CODE (DO NOT DELETE/MODIFY THIS LINE)*****
             #########################################################################
             # TODO:                                                                 #
