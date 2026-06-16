@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Arena Blasters</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -12,34 +13,41 @@ body {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: -webkit-fill-available;
   font-family: 'Courier New', monospace;
   overflow: hidden;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
 }
 #wrap {
   position: relative;
+  width: 100%;
+  max-width: 900px;
 }
 canvas {
   display: block;
+  width: 100%;
+  height: auto;
   border: 2px solid #1a1a3a;
   box-shadow: 0 0 60px rgba(80, 80, 255, 0.25), 0 0 120px rgba(80, 80, 255, 0.1);
+  touch-action: none;
 }
 #hint {
-  margin-top: 6px;
-  color: #334;
-  font-size: 10px;
+  margin-top: 4px;
+  color: #223;
+  font-size: 9px;
   text-align: center;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
 }
 </style>
 </head>
 <body>
 <div id="wrap">
-  <canvas id="c" width="900" height="550"></canvas>
+  <canvas id="c" width="900" height="660"></canvas>
   <div id="hint">
-    P1: A/D move &nbsp;|&nbsp; W jump &nbsp;|&nbsp; S aim-down &nbsp;|&nbsp; SPACE shoot &nbsp;|&nbsp; Q switch weapon &nbsp;|&nbsp; R reload
-    &nbsp;&nbsp;&nbsp;&nbsp;
-    P2: ←/→ move &nbsp;|&nbsp; ↑ jump &nbsp;|&nbsp; ↓ aim-down &nbsp;|&nbsp; ENTER shoot &nbsp;|&nbsp; P switch weapon &nbsp;|&nbsp; O reload
+    P1: A/D move | W jump | S aim-down | SPACE shoot | Q switch | R reload &nbsp;&nbsp;
+    P2: ←/→ move | ↑ jump | ↓ aim-down | ENTER shoot | P switch | O reload
   </div>
 </div>
 <script>
@@ -48,7 +56,7 @@ canvas {
 // ─── Canvas ───────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('c');
 const ctx    = canvas.getContext('2d');
-const W = 900, H = 550;
+const W = 900, H = 550, H_FULL = 660; // H_FULL includes touch strip
 
 // ─── Game constants ───────────────────────────────────────────────────────────
 const GRAV        = 0.48;
@@ -204,6 +212,177 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { keys[e.code] = false; });
 function consumePressed(code) { const v = pressed[code]; delete pressed[code]; return v; }
+
+// ─── Touch input ──────────────────────────────────────────────────────────────
+// Layout in canvas coordinates (900×660). Controls strip: y 554–658.
+// Row 1 (y=556, h=51): move left/aimDn/right + shoot
+// Row 2 (y=611, h=45): jump / swap / reload
+const TC = {
+  p1: {
+    left:   { x:5,   y:556, w:65, h:51 },
+    aimDn:  { x:72,  y:556, w:65, h:51 },
+    right:  { x:139, y:556, w:65, h:51 },
+    shoot:  { x:213, y:554, w:82, h:102 },
+    jump:   { x:5,   y:611, w:65, h:45 },
+    swap:   { x:72,  y:611, w:65, h:45 },
+    reload: { x:139, y:611, w:65, h:45 },
+  },
+  p2: {
+    right:  { x:830, y:556, w:65, h:51 },
+    aimDn:  { x:763, y:556, w:65, h:51 },
+    left:   { x:696, y:556, w:65, h:51 },
+    shoot:  { x:605, y:554, w:82, h:102 },
+    jump:   { x:830, y:611, w:65, h:45 },
+    swap:   { x:763, y:611, w:65, h:45 },
+    reload: { x:696, y:611, w:65, h:45 },
+  },
+};
+const TC_KEY = {
+  p1: { left:'KeyA', right:'KeyD', jump:'KeyW', aimDn:'KeyS', shoot:'Space', swap:'KeyQ', reload:'KeyR' },
+  p2: { left:'ArrowLeft', right:'ArrowRight', jump:'ArrowUp', aimDn:'ArrowDown', shoot:'Enter', swap:'KeyP', reload:'KeyO' },
+};
+// Actions that stay held while finger is down
+const TC_HOLD    = { left:true, right:true, aimDn:true, shoot:true, jump:true };
+// Actions that fire a one-shot press event on touchstart
+const TC_ONESHOT = { jump:true, swap:true, reload:true };
+
+const activeTouches = new Map(); // touchId → { player, action, keyCode }
+let touchEnabled = false;
+
+function getCanvasXY(touch) {
+  const r = canvas.getBoundingClientRect();
+  return {
+    x: (touch.clientX - r.left) * (W     / r.width),
+    y: (touch.clientY - r.top)  * (H_FULL / r.height),
+  };
+}
+
+function findTCButton(pos) {
+  for (const [player, btns] of Object.entries(TC)) {
+    for (const [action, b] of Object.entries(btns)) {
+      if (pos.x >= b.x && pos.x <= b.x + b.w && pos.y >= b.y && pos.y <= b.y + b.h) {
+        return { player, action, keyCode: TC_KEY[player][action] };
+      }
+    }
+  }
+  return null;
+}
+
+function tcPress(info) {
+  if (!info) return;
+  if (TC_HOLD[info.action])    keys[info.keyCode]    = true;
+  if (TC_ONESHOT[info.action]) pressed[info.keyCode] = true;
+}
+
+function tcRelease(info) {
+  if (!info) return;
+  if (TC_HOLD[info.action]) keys[info.keyCode] = false;
+}
+
+canvas.addEventListener('touchstart', e => {
+  e.preventDefault();
+  touchEnabled = true;
+  initAudio();
+  if (game.state === STATE.MENU || game.state === STATE.MATCH_END) {
+    pressed['Space'] = true; return;
+  }
+  for (const t of e.changedTouches) {
+    const info = findTCButton(getCanvasXY(t));
+    if (info) { activeTouches.set(t.identifier, info); tcPress(info); }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchend', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const info = activeTouches.get(t.identifier);
+    if (info) { tcRelease(info); activeTouches.delete(t.identifier); }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchmove', e => {
+  e.preventDefault();
+  for (const t of e.changedTouches) {
+    const newInfo = findTCButton(getCanvasXY(t));
+    const oldInfo = activeTouches.get(t.identifier);
+    if (oldInfo?.keyCode !== newInfo?.keyCode) {
+      if (oldInfo) tcRelease(oldInfo);
+      if (newInfo) { activeTouches.set(t.identifier, newInfo); tcPress(newInfo); }
+      else activeTouches.delete(t.identifier);
+    }
+  }
+}, { passive: false });
+
+canvas.addEventListener('touchcancel', e => {
+  for (const t of e.changedTouches) {
+    const info = activeTouches.get(t.identifier);
+    if (info) { tcRelease(info); activeTouches.delete(t.identifier); }
+  }
+}, { passive: false });
+
+// ─── Draw touch controls ──────────────────────────────────────────────────────
+function drawTouchControls() {
+  if (!touchEnabled) return;
+
+  // Controls strip background
+  ctx.fillStyle = '#050510';
+  ctx.fillRect(0, H + 3, W, H_FULL - H - 3);
+  // Divider line with glow
+  const divGrad = ctx.createLinearGradient(0, H + 3, W, H + 3);
+  divGrad.addColorStop(0,   'transparent');
+  divGrad.addColorStop(0.2, '#3344aa88');
+  divGrad.addColorStop(0.5, '#5566cc');
+  divGrad.addColorStop(0.8, '#3344aa88');
+  divGrad.addColorStop(1,   'transparent');
+  ctx.fillStyle = divGrad;
+  ctx.fillRect(0, H + 2, W, 2);
+
+  // Center label
+  ctx.fillStyle = '#2a2a4a';
+  ctx.font = '9px Courier New';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('VS', W / 2, H + 55);
+
+  const ACTIVE = new Set();
+  activeTouches.forEach(info => ACTIVE.add(info.player + '_' + info.action));
+
+  function drawBtn(b, label, active, accent) {
+    ctx.save();
+    ctx.globalAlpha = active ? 0.92 : 0.52;
+    // bg
+    ctx.fillStyle = active ? accent + '33' : '#0a0a22';
+    ctx.strokeStyle = active ? accent : accent + '55';
+    ctx.lineWidth   = active ? 2 : 1;
+    ctx.beginPath(); ctx.roundRect(b.x + 1, b.y + 1, b.w - 2, b.h - 2, 7); ctx.fill(); ctx.stroke();
+    // label
+    ctx.globalAlpha = active ? 1 : 0.7;
+    ctx.fillStyle   = active ? '#ffffff' : accent;
+    ctx.textAlign   = 'center';
+    ctx.textBaseline = 'middle';
+    const fs = label.length > 4 ? 10 : label.length > 3 ? 11 : 13;
+    ctx.font = `bold ${fs}px Courier New`;
+    ctx.fillText(label, b.x + b.w / 2, b.y + b.h / 2);
+    ctx.restore();
+  }
+
+  const sets = [
+    { p: 'p1', accent: '#99aaff', labels: { left:'◄', aimDn:'▼ AIM', right:'►', shoot:'FIRE', jump:'▲ JUMP', swap:'SWAP', reload:'RLD' } },
+    { p: 'p2', accent: '#ff9988', labels: { left:'◄', aimDn:'▼ AIM', right:'►', shoot:'FIRE', jump:'▲ JUMP', swap:'SWAP', reload:'RLD' } },
+  ];
+  sets.forEach(({ p, accent, labels }) => {
+    Object.entries(TC[p]).forEach(([action, b]) => {
+      drawBtn(b, labels[action], ACTIVE.has(p + '_' + action), accent);
+    });
+    // Player label above controls
+    ctx.save();
+    ctx.fillStyle = accent + '88';
+    ctx.font = 'bold 9px Courier New';
+    ctx.textAlign = p === 'p1' ? 'left' : 'right';
+    ctx.fillText(`P${p === 'p1' ? 1 : 2}`, p === 'p1' ? 8 : 892, H + 10);
+    ctx.restore();
+  });
+}
 
 // ─── Particles ────────────────────────────────────────────────────────────────
 const parts = [];
@@ -1108,15 +1287,17 @@ const game = {
       if (this.state === STATE.MATCH_END)  this.drawMatchEnd();
     }
 
+    drawTouchControls();
+
     ctx.restore();
   },
 
   drawMenu() {
     const now = performance.now() / 1000;
-    // BG
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, '#020210'); bg.addColorStop(1, '#05050f');
-    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+    // BG (covers full canvas including touch strip)
+    const bg = ctx.createLinearGradient(0, 0, 0, H_FULL);
+    bg.addColorStop(0, '#020210'); bg.addColorStop(0.84, '#05050f'); bg.addColorStop(1, '#020208');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H_FULL);
 
     // Stars
     ctx.save();
@@ -1155,7 +1336,7 @@ const game = {
     const blink = Math.floor(now * 2) % 2 === 0;
     ctx.fillStyle = blink ? '#aabbff' : '#667799';
     ctx.font = 'bold 18px Courier New';
-    ctx.fillText('[ PRESS SPACE OR ENTER TO START ]', W/2, H/2 + 90);
+    ctx.fillText('[ PRESS SPACE  /  ENTER  /  TAP ]', W/2, H/2 + 90);
 
     ctx.fillStyle = '#445566';
     ctx.font = '11px Courier New';
@@ -1285,7 +1466,7 @@ const game = {
     const blink = Math.floor(now * 1.5) % 2 === 0;
     ctx.fillStyle = blink ? '#aabbff' : '#445566';
     ctx.font = 'bold 15px Courier New';
-    ctx.fillText('[ PRESS SPACE OR ENTER TO PLAY AGAIN ]', W/2, H/2 + 120);
+    ctx.fillText('[ SPACE  /  ENTER  /  TAP  to play again ]', W/2, H/2 + 120);
 
     ctx.restore();
   },
@@ -1302,7 +1483,7 @@ function loop(ts) {
   lastTime = ts;
 
   // Clear
-  ctx.clearRect(0, 0, W, H);
+  ctx.clearRect(0, 0, W, H_FULL);
 
   game.update();
   game.draw();
